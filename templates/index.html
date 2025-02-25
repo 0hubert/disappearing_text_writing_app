@@ -5,49 +5,216 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Disappearing Text App</title>
     <style>
+        :root {
+            --bg-color: white;
+            --text-color: black;
+            --heartbeat-color: rgba(255, 0, 0, 0.05);
+            --poof-color: rgba(0, 0, 0, 0.7);
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --text-color: #e0e0e0;
+            --heartbeat-color: rgba(255, 0, 0, 0.03);
+            --poof-color: rgba(255, 255, 255, 0.7);
+        }
+
         body {
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
             margin: 0;
-            background-color: #f0f0f0;
-            font-family: Arial, sans-serif;
+            background-color: var(--bg-color);
+            transition: background-color 0.3s ease;
         }
         
         #writing-area {
-            width: 80%;
-            height: 400px;
+            width: 100%;
+            height: 140%;  /* Increased from 100% to 140% (125% up + 15% down) */
             padding: 20px;
-            font-size: 16px;
-            border: 2px solid #ccc;
-            border-radius: 5px;
+            font-size: 18px;
+            border: none;
             resize: none;
+            line-height: 1.6;
+            background-color: transparent;
+            color: var(--text-color);
+            transition: filter 0.3s ease, color 0.3s ease;
+            outline: none;  /* Remove the focus outline */
         }
         
-        #writing-area:focus {
-            outline: none;
-            border-color: #666;
+        #writing-area::placeholder {
+            color: var(--text-color);
+            opacity: 0.5;
+        }
+
+        #theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 5px;
+            background-color: transparent;
+            color: var(--text-color);
+            cursor: pointer;
+            font-size: 24px;
+            transition: transform 0.2s ease;
+        }
+
+        #theme-toggle:hover {
+            transform: scale(1.1);
+        }
+
+        @keyframes heartbeat {
+            0% {
+                background-color: var(--bg-color);
+            }
+            50% {
+                background-color: var(--heartbeat-color);
+            }
+            100% {
+                background-color: var(--bg-color);
+            }
+        }
+
+        .warning-mild {
+            animation: heartbeat 2s ease-in-out infinite;
+        }
+
+        .warning-mild #writing-area {
+            filter: blur(0.5px);
+        }
+
+        .warning-severe {
+            animation: heartbeat 1.5s ease-in-out infinite;
+        }
+
+        .warning-severe #writing-area {
+            filter: blur(1px);
+        }
+
+        @keyframes poof {
+            0% {
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(-50px) scale(0.8);
+                opacity: 0;
+            }
+        }
+
+        .poof-text {
+            position: absolute;
+            font-size: 18px;
+            color: var(--poof-color);
+            pointer-events: none;
+            animation: poof 0.6s ease-out forwards;
+            white-space: pre;
+        }
+
+        .container {
+            position: relative;
+            width: 50%;
+            height: 50vh;
+            transform: translateY(-25%);  /* Move up by 25% */
         }
     </style>
 </head>
-<body>
-    <textarea id="writing-area" placeholder="Start typing... If you stop for 5 seconds, your text will disappear!"></textarea>
+<body id="app-body">
+    <button id="theme-toggle" aria-label="Toggle dark mode">🌓</button>
+    <div class="container">
+        <textarea id="writing-area" placeholder="Start writing..."></textarea>
+    </div>
 
     <script>
         const textArea = document.getElementById('writing-area');
+        const body = document.getElementById('app-body');
+        const container = document.querySelector('.container');
         let timeoutId = null;
-        const TIMEOUT_DURATION = 5000; // 5 seconds in milliseconds
+        let warningTimeoutId = null;
+        const TIMEOUT_DURATION = 5000;
+        const WARNING_START = 1000;
+
+        // Theme toggle functionality
+        const themeToggle = document.getElementById('theme-toggle');
+        
+        function setTheme(isDark) {
+            document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        }
+
+        // Initialize theme from localStorage or system preference
+        const savedTheme = localStorage.getItem('theme') || 
+            (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        setTheme(savedTheme === 'dark');
+
+        themeToggle.addEventListener('click', () => {
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            setTheme(!isDark);
+        });
+
+        function createPoofEffect() {
+            const text = textArea.value;
+            const rect = textArea.getBoundingClientRect();
+            const style = window.getComputedStyle(textArea);
+            const lineHeight = parseInt(style.lineHeight);
+            const paddingTop = parseInt(style.paddingTop);
+            const paddingLeft = parseInt(style.paddingLeft);
+            
+            // Get cursor position for each character
+            const textLines = text.split('\n');
+            let currentTop = rect.top + paddingTop;
+            
+            textLines.forEach(line => {
+                let currentLeft = rect.left + paddingLeft;
+                const words = line.split(/(\s+)/);  // Keep spaces
+                
+                words.forEach(word => {
+                    if (word.trim()) {  // Only animate non-space words
+                        const span = document.createElement('span');
+                        span.textContent = word;
+                        span.className = 'poof-text';
+                        span.style.left = currentLeft + 'px';
+                        span.style.top = currentTop + 'px';
+                        document.body.appendChild(span);
+                        
+                        setTimeout(() => span.remove(), 1000);
+                    }
+                    // Move position by word length (including spaces)
+                    currentLeft += word.length * (style.fontSize.replace('px', '') * 0.6);
+                });
+                currentTop += lineHeight;
+            });
+        }
 
         function resetTimeout() {
             if (timeoutId) {
                 clearTimeout(timeoutId);
             }
+            if (warningTimeoutId) {
+                clearTimeout(warningTimeoutId);
+            }
+            body.classList.remove('warning-mild', 'warning-severe');
             
             if (textArea.value.length > 0) {
                 timeoutId = setTimeout(() => {
-                    textArea.value = '';
+                    createPoofEffect();  // Add poof effect before clearing
+                    setTimeout(() => {
+                        textArea.value = '';
+                        body.classList.remove('warning-mild', 'warning-severe');
+                    }, 100);
                 }, TIMEOUT_DURATION);
+
+                warningTimeoutId = setTimeout(() => {
+                    body.classList.add('warning-mild');
+                    
+                    setTimeout(() => {
+                        body.classList.remove('warning-mild');
+                        body.classList.add('warning-severe');
+                    }, TIMEOUT_DURATION - WARNING_START - 2000);
+                }, WARNING_START);
             }
         }
 
